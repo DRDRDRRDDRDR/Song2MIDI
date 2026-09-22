@@ -30,7 +30,7 @@ jobs:
             split_volumes: 'false'      # CPU 版约 0.8 GB，单文件够用
           - variant: cuda
             torch_index: https://download.pytorch.org/whl/cu126
-            split_volumes: 'true'       # CUDA 版约 4.3 GB，超 2GB 上限，必须分卷
+            split_volumes: 'true'       # CUDA 版远超 2GB 上限，必须分卷
 
     steps:
       - name: 检出代码
@@ -42,18 +42,47 @@ jobs:
           python-version: '3.13'
           cache: 'pip'
 
-      - name: 安装 PyTorch（${{ matrix.variant }}）
-        run: |
-          python -m pip install --upgrade pip
-          pip install torch torchaudio --index-url ${{ matrix.torch_index }}
+      - name: 升级 pip
+        run: python -m pip install --upgrade pip
 
+      # 顺序很关键：**先装其它依赖，最后装 torch**。
+      #
+      # 第一版踩到的坑：先装 CUDA 版 torch、再装 requirements-build.txt，
+      # 结果 pip 在处理 demucs 等包的依赖时从默认源（PyPI）重新解析，
+      # 把 CUDA 版 torch 换成了 CPU 版 —— 表现为 cuda 版产物只比 cpu 版大 10 MB
+      # （195.8 vs 185.5 MB），而 CUDA 版 torch 的解包体积是 3.8 GB。
+      # 把 torch 放到最后装即可避免被覆盖。
       - name: 安装其它依赖
         run: pip install -r requirements-build.txt
 
-      - name: 打印关键版本（排障用）
+      - name: 安装 PyTorch（${{ matrix.variant }}）
+        run: pip install --force-reinstall torch torchaudio --index-url ${{ matrix.torch_index }}
+
+      - name: 断言 torch 变体正确
+        shell: pwsh
         run: |
-          python -c "import torch,sys;print('Python',sys.version);print('torch',torch.__version__);print('cuda 可用:',torch.cuda.is_available())"
-          python -m PyInstaller --version
+          # 这一步是为了让「装错变体」这类问题在构建早期就暴露，
+          # 而不是等用户下载了 200 MB 才发现没有 GPU 加速。
+          python -c @'
+          import sys, pathlib, torch
+          v = torch.__version__
+          want = '${{ matrix.variant }}'
+          print('Python  ', sys.version.split()[0])
+          print('torch   ', v)
+          lib = pathlib.Path(torch.__file__).parent / 'lib'
+          dlls = [p.name for p in lib.glob('*.dll')] if lib.is_dir() else []
+          cuda_dlls = [n for n in dlls if 'cuda' in n.lower() or 'cudnn' in n.lower() or 'cublas' in n.lower()]
+          total = sum(p.stat().st_size for p in lib.glob('*')) / 2**20 if lib.is_dir() else 0
+          print(f'torch/lib 共 {len(dlls)} 个 DLL，{total:.1f} MB')
+          print(f'其中 CUDA 相关 DLL: {len(cuda_dlls)} 个')
+          if want == 'cuda':
+              assert '+cu' in v, f'期望 CUDA 版，实际拿到 {v}'
+              assert len(cuda_dlls) > 0, 'torch/lib 里没有任何 CUDA DLL'
+              assert total > 1500, f'torch/lib 仅 {total:.0f} MB，不像 CUDA 版'
+          else:
+              assert '+cu' not in v, f'期望 CPU 版，实际拿到 {v}'
+          print('变体断言通过')
+          '@
 
       - name: 校验必需资源
         shell: pwsh
@@ -79,14 +108,28 @@ jobs:
         run: |
           $d = "dist_${{ matrix.variant }}/Song2MIDI"
           if (-not (Test-Path "$d/Song2MIDI.exe")) { throw "未生成 exe" }
+
           $mb = [math]::Round((Get-ChildItem $d -Recurse -File | Measure-Object Length -Sum).Sum / 1MB, 1)
-          Write-Host "产物大小: $mb MB"
-          # 确认模型没有被误打进包（外置方案的关键断言）
+          $tmb = 0
+          if (Test-Path "$d/_internal/torch") {
+            $tmb = [math]::Round((Get-ChildItem "$d/_internal/torch" -Recurse -File | Measure-Object Length -Sum).Sum / 1MB, 1)
+          }
+          Write-Host "产物总大小: $mb MB"
+          Write-Host "其中 torch/: $tmb MB"
+
+          # 断言一：模型没被误打进包（外置方案的关键）
           $m = "$d/_internal/models"
           if (Test-Path $m) {
             $mmb = [math]::Round((Get-ChildItem $m -Recurse -File | Measure-Object Length -Sum).Sum / 1MB, 1)
-            Write-Host "包内 models/ 大小: $mmb MB（应仅约 0.2 MB，即 nmp.onnx）"
+            Write-Host "包内 models/: $mmb MB（应仅约 0.2 MB，即 nmp.onnx）"
             if ($mmb -gt 5) { throw "模型被误打进包了（$mmb MB），检查 spec 的 add_data" }
+          }
+
+          # 断言二：torch 变体与声明一致
+          if ('${{ matrix.variant }}' -eq 'cuda') {
+            if ($tmb -lt 1500) { throw "cuda 版包内 torch 仅 $tmb MB，疑似装成了 CPU 版" }
+          } else {
+            if ($tmb -gt 800) { throw "cpu 版包内 torch 达 $tmb MB，疑似装成了 CUDA 版" }
           }
 
       - name: 压缩（单文件）
@@ -99,7 +142,7 @@ jobs:
           Write-Host "$name.7z = $mb MB"
           echo "ASSET=$name.7z" >> $env:GITHUB_ENV
 
-      # GitHub Release 单文件上限 2 GB，CUDA 版约 4.3 GB，只能分卷
+      # GitHub Release 单文件上限 2 GB，CUDA 版远超，只能分卷
       - name: 压缩（分卷 1900 MB）
         if: matrix.split_volumes == 'true'
         shell: pwsh
@@ -133,13 +176,14 @@ jobs:
             ## 下载说明
 
             **模型不随软件打包**，首次运行请在界面里点「模型浏览器」下载所需模型。
+            最小可用组合约 244 MB（Basic Pitch + Demucs htdemucs + 钢琴专用）。
 
             | 变体 | 说明 | 建议 |
             |---|---|---|
             | `cpu` | 体积小（约 0.8 GB），任何机器都能跑 | 没有 NVIDIA 显卡时选这个 |
             | `cuda` | 含 CUDA 加速（约 4.3 GB，分卷） | 有 NVIDIA 显卡时选这个 |
 
-            ⚠️ **cuda 版是分卷压缩**，必须把 `cuda.7z.001`、`.002`、`.003` **全部下载**，
+            ⚠️ **cuda 版是分卷压缩**，必须把 `.7z.001`、`.002`、`.003` **全部下载**，
             再对 `.001` 解压（7-Zip 会自动串起来）。
 
             ### 解压后使用
