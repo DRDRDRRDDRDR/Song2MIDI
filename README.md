@@ -108,6 +108,65 @@ CLI 对应 `--separation auto|force|skip`（`--no-separate` 等价于 `skip`）�
 
 ---
 
+## 模型管理（模型不随软件打包）
+
+**软件本体只有几十 MB，模型按需下载。** 首次运行请在界面里点「模型浏览器」，
+勾选需要的模型下载即可。
+
+### 为什么外置
+
+三个模型合计约 750 MB，而 CUDA 版 torch 本身已有 2.5 GB —— 打在一起会让产物
+膨胀到 **5 GB**，超过 GitHub Release 的 **2 GB 单文件上限**，也没法常规分发。
+外置之后：软件本体变小、模型可跨版本复用、用户只下自己需要的。
+
+### 模型清单从哪来
+
+清单托管在本仓库根目录的 [`models.json`](models.json)。软件点「刷新」即拉取它，
+**改这个 JSON 就能让所有已安装的软件看到新模型，无需重新发版**。
+
+拉取镜像按实测速度排序（`raw.githubusercontent.com` 在国内直连要 13 秒、
+走代理直接超时，所以**不作首选**）：
+
+| 镜像 | 直连 | 走代理 |
+|---|---|---|
+| `gh-proxy.com` | 663 ms | **284 ms** ← 首选 |
+| `cdn.jsdelivr.net` | **637 ms** | 1716 ms |
+| `raw.githubusercontent.com` | 13083 ms | 超时 ← 兜底 |
+
+全部不可达时回退到内置清单（`app/models_builtin.json`），保证界面不空着。
+
+### 模型存放位置
+
+```
+%LOCALAPPDATA%\Song2MIDI\models
+```
+
+选这里的理由：符合 Windows 惯例、不需要管理员权限、多个版本共享同一份。
+可用环境变量 `SONG2MIDI_MODELS` 改到别的盘：
+
+```bat
+set SONG2MIDI_MODELS=D:\AIModels\Song2MIDI
+```
+
+**兼容旧版**：如果 exe 同级或项目根存在非空的 `models/`，会优先使用它 ——
+从旧版本升级不必重下 750 MB。
+
+### 可选模型一览
+
+| 模型 | 大小 | 说明 |
+|---|---|---|
+| **Basic Pitch**（必需） | 0.2 MB | 通用多音转录。随包分发，开箱即用 |
+| **Demucs htdemucs**（推荐） | 80 MB | 默认分离档位，速度质量平衡 |
+| **钢琴专用转录**（推荐） | 164 MB | ByteDance 高分辨率钢琴转录，**含延音踏板** |
+| BS-RoFormer 4stems | 503 MB | 分离质量最好，但 CPU 上 0.05x 实时，需 GPU |
+| Demucs htdemucs_ft | 321 MB | 4 子模型集成，质量优于默认档，约 4 倍耗时 |
+| Demucs hdemucs_mmi | 160 MB | 速度质量居中 |
+| Demucs htdemucs_6s | 52 MB | 额外分出钢琴/吉他两轨（本项目暂未使用） |
+
+**最小可用组合 = 244 MB**（Basic Pitch + htdemucs + 钢琴专用）。
+
+---
+
 ## 分离引擎怎么选
 
 | 引擎 | 设备 | 4 分钟歌耗时 | 质量 |
@@ -197,6 +256,36 @@ transcription:
     bass:
       max_polyphony: 1    # 贝斯几乎总是单音，限死能显著去错音
 ```
+
+---
+
+## 从 GitHub 获取编译产物
+
+不用自己装环境，[Actions](https://github.com/DRDRDRRDDRDR/Song2MIDI/actions) 里
+已配置好自动构建。打 tag 会自动发布 Release：
+
+```bash
+git tag v1.0.0 && git push origin v1.0.0
+```
+
+也可以手动触发：Actions 页面 → Build Release → Run workflow。
+
+### 两个变体
+
+| 变体 | 大小 | 适用 |
+|---|---|---|
+| **cpu** | 约 0.8 GB，单文件 | 没有 NVIDIA 显卡时选它 |
+| **cuda** | 约 4.3 GB，**7z 分卷** | 有 NVIDIA 显卡时选它 |
+
+⚠️ CUDA 版是分卷压缩 —— 必须把 `.7z.001`、`.002`、`.003` **全部下载**，
+再对 `.001` 解压（7-Zip 会自动串起来）。
+
+解压出的 `Song2MIDI` 文件夹要**整体保留**，不能只拷 exe：依赖都在 `_internal/`。
+
+### CI 里为什么不下载模型
+
+模型已外置，构建时不需要它们 —— 这既让构建更快，也避免了 CI 里再走一遍
+国内拉模型的麻烦。CI 只断言「包里 models/ 不超过 5 MB」，确保模型没被误打进去。
 
 ---
 
