@@ -46,11 +46,12 @@ BRANCH = "main"
 RAW_PATH = f"{REPO}/{BRANCH}/models.json"
 MANIFEST_URL = f"https://raw.githubusercontent.com/{RAW_PATH}"
 
-# 按实测速度排序；raw.githubusercontent 放最后兜底
+# 按实测速度排序；raw.githubusercontent 放最后兜底。
+# 注意 ghproxy.net 已实测对 raw 路径返回 404（它的 URL 格式与 gh-proxy 不同），
+# 所以不要按「名字看着像」就加进来 —— 每个镜像都要实测过。
 MANIFEST_MIRRORS = [
     f"https://gh-proxy.com/https://raw.githubusercontent.com/{RAW_PATH}",
     f"https://cdn.jsdelivr.net/gh/{REPO}@{BRANCH}/models.json",
-    f"https://ghproxy.net/https://raw.githubusercontent.com/{RAW_PATH}",
     f"https://raw.githubusercontent.com/{RAW_PATH}",
 ]
 
