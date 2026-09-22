@@ -1,0 +1,47 @@
+# ---- 运行产物 ----
+work/
+out/
+logs/
+*.mid
+*_notes.json
+
+# ---- 模型与权重 ----
+# 这些体积远超 GitHub 限制（单文件硬限 100 MB），且都能重新获取：
+#   models/nmp.onnx              取自 basic-pitch wheel（Apache-2.0，230 KB）
+#   models/roformer/*.pth        BS-RoFormer 权重（Apache-2.0，503 MB）
+#   models/torch_hub/**          Demucs 权重（首次运行自动下载，约 80 MB）
+#   models/wheels/**             CUDA 版 torch 等离线安装包（约 2.5 GB）
+#   models/cuda_wheels.json      下载清单
+# 详见 README 的「环境」与「打包成 exe」两节。
+models/
+
+# ---- 打包产物 ----
+dist/
+dist_*/
+build/work*/
+build/work_final/
+build/song2midi/
+*_旧构建产物_可整目录删除/
+*.spec.bak
+
+# ---- 本机专用配置（含绝对路径，不进仓库）----
+run.local.bat
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ---- 编辑器 / 系统 ----
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+desktop.ini
+.DS_Store

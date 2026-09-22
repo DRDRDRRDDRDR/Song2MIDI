@@ -1,0 +1,21 @@
+# 第二阶段：重量依赖（约 130 MB + 首次运行时的模型权重）
+#
+# 安装：
+#   pip install -r requirements-heavy.txt -i https://mirrors.aliyun.com/pypi/simple/
+#
+# 重要说明：PyPI 上 Windows 版的 torch 是 **CPU-only** 构建（124 MB），
+# 所有 CUDA 依赖都被限定为 platform_system == "Linux"，因此这里装不上 GPU 加速。
+# 若要用 GPU 跑 Demucs，需要改用 PyTorch 官方索引（约 2.5 GB）：
+#
+#   pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu126
+#
+# 官方索引已实测可达（HTTP 200），提供 torch 2.9.1+cu126 的 cp313 win_amd64 wheel。
+# 程序会自动检测，无需改代码：config.yaml 里 separator.device 设为 auto 即可。
+
+torch
+torchaudio
+demucs
+
+# 首次运行四轨分离时，Demucs 会自动下载权重到 models/torch_hub/
+# 权重源 dl.fbaipublicfiles.com 已实测可达。单档约 80 MB。
+# 不需要任何 HuggingFace 访问。

@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Song2MIDI · 歌曲转多轨 MIDI</title>
+<style>
+  :root{
+    --bg:#141517; --panel:#1c1e21; --panel2:#232629; --line:#33373c;
+    --tx:#e8eaed; --tx2:#9aa0a6; --tx3:#6b7075;
+    --accent:#4a9eff; --ok:#4ade80; --warn:#fbbf24; --err:#f87171;
+    --mono:ui-monospace,"Cascadia Mono",Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--tx);
+       font:14px/1.6 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+  header{padding:16px 24px;border-bottom:1px solid var(--line);
+         display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+  h1{margin:0;font-size:17px;font-weight:600;letter-spacing:.3px}
+  header .sub{color:var(--tx3);font-size:12px}
+  .wrap{display:grid;grid-template-columns:360px 1fr;gap:18px;padding:18px 24px;align-items:start}
+  @media(max-width:1040px){.wrap{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+        padding:14px 16px;margin-bottom:16px}
+  .card h2{margin:0 0 10px;font-size:13px;font-weight:600;color:var(--tx2);
+           text-transform:uppercase;letter-spacing:.6px}
+  .row{display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
+  label.f{display:block;font-size:12px;color:var(--tx2);margin:10px 0 4px}
+  input[type=text],input[type=number],select{
+    width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--tx);
+    border-radius:6px;padding:7px 9px;font-size:13px;font-family:var(--mono)}
+  input:focus,select:focus{outline:none;border-color:var(--accent)}
+  button{background:var(--panel2);border:1px solid var(--line);color:var(--tx);
+         border-radius:6px;padding:7px 13px;font-size:13px;cursor:pointer;
+         font-family:inherit;transition:background .12s,border-color .12s}
+  button:hover{background:#2c3033;border-color:#454a50}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#08121f;font-weight:600}
+  button.primary:hover{background:#63aeff}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  .drop{border:1.5px dashed #3d4247;border-radius:10px;padding:20px;text-align:center;
+        color:var(--tx3);font-size:13px;cursor:pointer;transition:.15s}
+  .drop.hot{border-color:var(--accent);background:#1a2733;color:var(--tx2)}
+  .env{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12px;font-family:var(--mono)}
+  .env span{display:flex;align-items:center;gap:5px}
+  .dot{width:7px;height:7px;border-radius:50%;display:inline-block;flex:none}
+  .dot.ok{background:var(--ok)} .dot.no{background:var(--err)} .dot.warn{background:var(--warn)}
+  .chk{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--tx2);
+       cursor:pointer;user-select:none}
+  .chk input{accent-color:var(--accent);width:14px;height:14px}
+  .chks{display:grid;grid-template-columns:1fr 1fr;gap:6px 10px}
+  .browse{max-height:210px;overflow:auto;border:1px solid var(--line);border-radius:6px;
+          background:var(--panel2);font-family:var(--mono);font-size:12px}
+  .browse div{padding:5px 9px;cursor:pointer;border-bottom:1px solid #26292d;
+              white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .browse div:hover{background:#2c3033}
+  .browse div.sel{background:#1d3a55;color:#cfe6ff}
+  .browse .d{color:var(--accent)} .browse .f{color:var(--tx2)}
+  .crumb{font-family:var(--mono);font-size:11px;color:var(--tx3);
+         word-break:break-all;margin-bottom:6px}
+  .job{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+       padding:14px 16px;margin-bottom:12px}
+  .job .top{display:flex;justify-content:space-between;gap:12px;align-items:baseline;flex-wrap:wrap}
+  .job .nm{font-weight:600;font-size:14px;word-break:break-all}
+  .job .meta{font-size:12px;color:var(--tx3);font-family:var(--mono)}
+  .badge{font-size:11px;padding:2px 8px;border-radius:20px;font-family:var(--mono);flex:none}
+  .b-run{background:#12314d;color:#8fc6ff;border:1px solid #1d4d75}
+  .b-done{background:#12351f;color:#7ee2a0;border:1px solid #1d5a35}
+  .b-fail{background:#3a1a1a;color:#ffa0a0;border:1px solid #6b2b2b}
+  .b-pend{background:#2b2b2b;color:#b9bec4;border:1px solid #3f4449}
+  .bar{height:3px;background:#2a2d31;border-radius:2px;margin:10px 0 4px;overflow:hidden}
+  .bar i{display:block;height:100%;background:var(--accent);transition:width .4s;
+         animation:sl 1.4s ease-in-out infinite}
+  @keyframes sl{0%{opacity:.5}50%{opacity:1}100%{opacity:.5}}
+  .stage{font-size:12px;color:var(--tx3);font-family:var(--mono)}
+  table{width:100%;border-collapse:collapse;margin:10px 0;font-size:13px}
+  th,td{text-align:left;padding:5px 9px;border-bottom:1px solid #26292d}
+  th{color:var(--tx3);font-weight:500;font-size:11px;text-transform:uppercase;
+     letter-spacing:.4px}
+  td.n{text-align:right;font-family:var(--mono)}
+  audio{width:100%;height:30px;margin-top:3px}
+  .warnbox{background:#33280d;border:1px solid #6b5216;color:#f2cf7a;
+           border-radius:6px;padding:7px 11px;font-size:12px;margin-top:8px}
+  .errbox{background:#331a1a;border:1px solid #6b2b2b;color:#ffb0b0;
+          border-radius:6px;padding:8px 11px;font-size:12px;margin-top:8px;
+          font-family:var(--mono);white-space:pre-wrap;max-height:170px;overflow:auto}
+  .files{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+  .fbtn{background:var(--panel2);border:1px solid var(--line);border-radius:6px;
+        padding:6px 11px;font-size:12px;font-family:var(--mono)}
+  .muted{color:var(--tx3);font-size:12px}
+  .empty{color:var(--tx3);text-align:center;padding:34px 12px;font-size:13px}
+  .stemrow{display:flex;gap:10px;align-items:center;padding:3px 0}
+  .stemrow .k{width:92px;flex:none;font-family:var(--mono);font-size:12px;color:var(--tx2)}
+  details summary{cursor:pointer;font-size:12px;color:var(--tx3);margin-top:6px}
+</style>
+</head>
+<body>
+<header>
+  <h1>Song2MIDI</h1>
+  <span class="sub">歌曲文件 → 四轨分离 → 多轨 MIDI · 全程本地处理，不上传任何音频</span>
+</header>
+
+<div class="wrap">
+  <!-- ============ 左栏：输入与选项 ============ -->
+  <div>
+    <div class="card">
+      <h2>环境状态</h2>
+      <div class="env" id="env">检测中…</div>
+    </div>
+
+    <div class="card">
+      <h2>选择音频</h2>
+      <div class="drop" id="drop">把音频文件拖到这里<br><span class="muted">或点击从本机列表选取</span></div>
+      <input type="file" id="fileInput" multiple accept="audio/*" style="display:none">
+
+      <label class="f">本地路径列表（推荐：不复制文件，直接读原文件）</label>
+      <div class="crumb" id="crumb">—</div>
+      <div class="row">
+        <button id="btnHome">常用目录</button>
+        <button id="btnUp">上一级</button>
+        <button id="btnRefresh">刷新</button>
+      </div>
+      <div class="browse" id="browse"><div class="muted" style="padding:9px">点击「常用目录」开始</div></div>
+      <div class="muted" id="picked" style="margin-top:8px">已选 0 个文件</div>
+    </div>
+
+    <div class="card">
+      <h2>处理选项</h2>
+      <label class="chk"><input type="checkbox" id="optSeparate" checked>
+        启用四轨分离（关闭则整首单轨转录，快很多但准确度低）</label>
+      <label class="chk" style="margin-top:6px"><input type="checkbox" id="optDrums" checked> 鼓组转录</label>
+      <label class="chk" style="margin-top:6px"><input type="checkbox" id="optChords" checked> 和弦识别</label>
+      <label class="chk" style="margin-top:6px"><input type="checkbox" id="optQuant" checked> 节拍量化</label>
+
+      <label class="f">要转录的分轨</label>
+      <div class="chks">
+        <label class="chk"><input type="checkbox" class="stem" value="vocals" checked> 人声</label>
+        <label class="chk"><input type="checkbox" class="stem" value="drums" checked> 鼓</label>
+        <label class="chk"><input type="checkbox" class="stem" value="bass" checked> 贝斯</label>
+        <label class="chk"><input type="checkbox" class="stem" value="other" checked> 其他</label>
+      </div>
+
+      <label class="f">分离模型</label>
+      <select id="optModel">
+        <option value="htdemucs">htdemucs — 快（推荐先跑这个）</option>
+        <option value="htdemucs_ft">htdemucs_ft — 质量更好，约 4 倍耗时</option>
+        <option value="hdemucs_mmi">hdemucs_mmi — 速度质量居中</option>
+      </select>
+
+      <label class="f">计算设备</label>
+      <select id="optDevice">
+        <option value="auto">自动</option>
+        <option value="cuda">GPU (CUDA)</option>
+        <option value="cpu">CPU</option>
+      </select>
+
+      <div class="row" style="margin-top:12px">
+        <div style="flex:1">
+          <label class="f" style="margin-top:0">起始秒（留空=从头）</label>
+          <input type="number" id="optStart" placeholder="如 40" step="1" min="0">
+        </div>
+        <div style="flex:1">
+          <label class="f" style="margin-top:0">片段时长秒</label>
+          <input type="number" id="optDur" placeholder="如 30" step="1" min="1">
+        </div>
+      </div>
+      <div class="muted" style="margin-top:6px">先填片段试跑，确认效果再处理整首，可以省下大量等待。</div>
+
+      <div class="row" style="margin-top:14px">
+        <button class="primary" id="btnRun" disabled>开始处理</button>
+        <button id="btnCancel">全部取消</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 右栏：任务 ============ -->
+  <div>
+    <div class="card" style="display:flex;justify-content:space-between;align-items:center">
+      <h2 style="margin:0">任务</h2>
+      <button id="btnClear">清除已完成</button>
+    </div>
+    <div id="jobs"><div class="empty">还没有任务。选好音频后点「开始处理」。</div></div>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const state = { picked: new Set(), jobs: {}, timer: null, browsePath: "" };
+
+function fmt(s){ s=Math.round(s||0); return Math.floor(s/60)+":"+String(s%60).padStart(2,"0"); }
+function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g, c =>
+  ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+
+/* ---------- 环境状态 ---------- */
+async function loadEnv(){
+  try{
+    const r = await fetch("/api/env"); const d = await r.json();
+    const m = d.modules || {};
+    const chip = (ok,label,title) =>
+      `<span title="${esc(title||"")}"><i class="dot ${ok?'ok':'no'}"></i>${esc(label)}</span>`;
+    let h = chip(!!d.ffmpeg, "ffmpeg", d.ffmpeg ? d.ffmpeg.version : (d.ffmpeg_error||"未找到"));
+    h += chip(d.onnx_model && d.onnx_model.exists, "音高模型", d.onnx_model ?
+          d.onnx_model.path : "");
+    h += chip(!!m.torch, "PyTorch "+(m.torch||"未装"), m.torch ? "" : "四轨分离需要 PyTorch");
+    h += chip(!!m.demucs, "Demucs "+(m.demucs||"未装"), m.demucs ? "" : "四轨分离需要 Demucs");
+    h += chip(!!m.librosa, "librosa", "");
+    h += chip(!!m.pretty_midi, "pretty_midi", "");
+    $("#env").innerHTML = h;
+    if(!m.demucs){
+      $("#env").innerHTML += `<div class="warnbox" style="width:100%">未检测到 Demucs，`+
+        `四轨分离不可用。可先关闭「启用四轨分离」跑通单轨流程。</div>`;
+    }
+  }catch(e){ $("#env").innerHTML = '<span class="muted">环境检测失败</span>'; }
+}
+
+/* ---------- 文件浏览 ---------- */
+async function browse(path){
+  const r = await fetch("/api/browse?path="+encodeURIComponent(path||""));
+  const d = await r.json();
+  $("#crumb").textContent = d.path || "（选择常用目录）";
+  state.browsePath = d.path || "";
+  let h = "";
+  if(!d.path){
+    h = (d.roots||[]).map(p => `<div class="d" data-nav="${esc(p)}">▸ ${esc(p)}</div>`).join("");
+    if(!h) h = '<div class="muted" style="padding:9px">未找到常用目录，请手动输入路径</div>';
+    $("#browse").innerHTML = h;
+    return;
+  }
+  (d.dirs||[]).forEach(x => {
+    h += `<div class="d" data-nav="${esc(x.path)}">▸ ${esc(x.name)}</div>`;
+  });
+  (d.files||[]).forEach(x => {
+    h += `<div class="f" data-file="${esc(x.path)}">♫ ${esc(x.name)} `+
+         `<span style="color:var(--tx3)">${x.mb} MB</span></div>`;
+  });
+  if(!h) h = '<div class="muted" style="padding:9px">此目录下没有音频文件</div>';
+  $("#browse").innerHTML = h;
+}
+
+document.addEventListener("click", e => {
+  const nav = e.target.closest("[data-nav]");
+  if(nav){ browse(nav.dataset.nav); return; }
+  const f = e.target.closest("[data-file]");
+  if(f){
+    const p = f.dataset.file;
+    if(state.picked.has(p)) state.picked.delete(p); else state.picked.add(p);
+    f.classList.toggle("sel", state.picked.has(p));
+    updatePicked();
+  }
+});
+
+function updatePicked(){
+  const n = state.picked.size;
+  $("#picked").textContent = "已选 " + n + " 个文件";
+  $("#btnRun").disabled = n === 0;
+}
+
+/* ---------- 提交 ---------- */
+function currentOptions(){
+  const stems = [...document.querySelectorAll(".stem:checked")].map(x => x.value);
+  const start = parseFloat($("#optStart").value);
+  const dur = parseFloat($("#optDur").value);
+  return {
+    separate: $("#optSeparate").checked,
+    transcribe_drums: $("#optDrums").checked,
+    transcribe_chords: $("#optChords").checked,
+    no_quantize: !$("#optQuant").checked,
+    stems: stems.length ? stems : ["vocals","drums","bass","other"],
+    model: $("#optModel").value,
+    device: $("#optDevice").value,
+    start: isNaN(start) ? null : start,
+    duration: isNaN(dur) ? null : dur,
+  };
+}
+
+async function run(){
+  const paths = [...state.picked];
+  if(!paths.length) return;
+  $("#btnRun").disabled = true;
+  try{
+    const r = await fetch("/api/jobs", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({paths, options: currentOptions()})
+    });
+    const d = await r.json();
+    if(d.error) alert("提交失败："+d.error);
+    state.picked.clear(); updatePicked();
+    document.querySelectorAll(".browse .sel").forEach(x => x.classList.remove("sel"));
+    poll();
+  }catch(e){ alert("提交失败："+e); }
+  finally{ $("#btnRun").disabled = state.picked.size === 0; }
+}
+
+/* ---------- 上传（拖拽/选择文件） ---------- */
+async function uploadFiles(files){
+  if(!files || !files.length) return;
+  $("#drop").textContent = "上传中… " + files.length + " 个文件";
+  const errors = [];
+  let lastIds = [];
+  for(const f of files){
+    const fd = new FormData(); fd.append("file", f);
+    try{
+      const r = await fetch("/api/upload", {method:"POST", body: fd});
+      const d = await r.json();
+      if(d.error) errors.push(f.name+": "+d.error); else lastIds.push(d.path);
+    }catch(e){ errors.push(f.name+": "+e); }
+  }
+  $("#drop").innerHTML = "把音频文件拖到这里<br><span class=\"muted\">或点击从本机列表选取</span>";
+  if(lastIds.length){
+    const r = await fetch("/api/jobs", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({paths: lastIds, options: currentOptions()})
+    });
+    await r.json(); poll();
+  }
+  if(errors.length) alert("部分文件上传失败：\n"+errors.join("\n"));
+}
+
+/* ---------- 任务渲染 ---------- */
+const STATUS = {pending:"排队", running:"处理中", done:"完成", failed:"失败", cancelled:"已取消"};
+const BADGE = {pending:"b-pend", running:"b-run", done:"b-done", failed:"b-fail", cancelled:"b-pend"};
+const STEM_CN = {vocals:"人声", drums:"鼓", bass:"贝斯", other:"其他", chords:"和弦", mix:"混音"};
+
+function jobHTML(j){
+  const cls = "badge " + (BADGE[j.status]||"b-pend");
+  let h = `<div class="job"><div class="top">
+    <div><div class="nm">${esc(j.filename)}</div>
+      <div class="meta">${j.duration_sec?fmt(j.duration_sec)+" 音频 · ":""}已用时 ${fmt(j.elapsed_sec)}
+      ${j.tempo? " · "+j.tempo.bpm+" BPM":""}
+      ${j.separator? " · "+esc(j.separator.model)+"@"+esc(j.separator.device):""}</div></div>
+    <div class="${cls}">${STATUS[j.status]||j.status}</div></div>`;
+
+  if(j.status==="running"){
+    const pct = Math.min(92, 8 + (j.timings? Object.keys(j.timings).length*11 : 0));
+    h += `<div class="bar"><i style="width:${pct}%"></i></div>
+      <div class="stage">当前阶段：${esc(j.stage||"准备中")}</div>`;
+  }
+  if(j.error) h += `<div class="errbox">${esc(j.error)}</div>`;
+  (j.warnings||[]).forEach(w => h += `<div class="warnbox">${esc(w)}</div>`);
+
+  if(j.status==="done"){
+    const stems = j.stems || [];
+    if(stems.length){
+      h += `<table><tr><th>分轨</th><th>音符数</th><th>音域</th><th>平均时值</th>
+        <th>试听</th></tr>`;
+      stems.forEach(s => {
+        const nm = STEM_CN[s.stem] || s.stem;
+        const au = (j.stem_audio && j.stem_audio[s.stem])
+          ? `<audio controls preload="none" src="/api/jobs/${j.job_id}/audio/${esc(s.stem)}"></audio>` : "";
+        h += `<tr><td>${esc(nm)} <span class="muted">${esc(s.stem)}</span></td>
+          <td class="n">${s.count||0}</td>
+          <td class="muted">${esc(s.pitch_min_name||"-")}–${esc(s.pitch_max_name||"-")}</td>
+          <td class="n">${s.duration_mean_ms!=null?s.duration_mean_ms+" ms":"-"}</td>
+          <td style="width:190px">${au}</td></tr>`;
+      });
+      h += `</table>`;
+    }
+    const files = (j.export && j.export.midi_files) || [];
+    if(files.length){
+      h += `<div class="muted">导出文件</div><div class="files">` + files.map(f => {
+        const n = f.split(/[\\/]/).pop();
+        return `<a class="fbtn" href="/api/jobs/${j.job_id}/midi/${encodeURIComponent(n)}">${esc(n)}</a>`;
+      }).join("") + `</div>`;
+    }
+    const t = j.timings || {};
+    if(Object.keys(t).length){
+      h += `<details><summary>各阶段耗时</summary><div class="meta">` +
+        Object.entries(t).map(([k,v]) => esc(k)+": "+v+"s").join(" · ") + `</div></details>`;
+    }
+  }
+
+  if(j.status==="running" || j.status==="pending"){
+    h += `<div class="row" style="margin-top:9px"><button data-cancel="${j.job_id}">取消</button>
+      <span class="muted">${esc(j.source)}</span></div>`;
+  }
+  return h + `</div>`;
+}
+
+document.addEventListener("click", async e => {
+  const b = e.target.closest("[data-cancel]");
+  if(b){ await fetch(`/api/jobs/${b.dataset.cancel}/cancel`,{method:"POST"}); poll(); }
+});
+
+async function poll(){
+  try{
+    const r = await fetch("/api/jobs"); const d = await r.json();
+    const jobs = d.jobs || [];
+    if(!jobs.length){
+      $("#jobs").innerHTML = '<div class="empty">还没有任务。选好音频后点「开始处理」。</div>';
+    }else{
+      $("#jobs").innerHTML = jobs.map(jobHTML).join("");
+    }
+    const active = jobs.filter(j => j.status==="running" || j.status==="pending").length;
+    clearTimeout(state.timer);
+    state.timer = setTimeout(poll, active ? 1200 : 5000);
+  }catch(e){
+    clearTimeout(state.timer);
+    state.timer = setTimeout(poll, 4000);
+  }
+}
+
+/* ---------- 事件绑定 ---------- */
+$("#btnHome").onclick = () => browse("");
+$("#btnUp").onclick = () => {
+  if(!state.browsePath) return;
+  const p = state.browsePath.replace(/[\\/]+$/,"").split(/[\\/]/);
+  p.pop();
+  browse(p.join("\\") || state.browsePath);
+};
+$("#btnRefresh").onclick = () => browse(state.browsePath);
+$("#btnRun").onclick = run;
+$("#btnCancel").onclick = async () => { await fetch("/api/jobs/cancel-all",{method:"POST"}); poll(); };
+$("#btnClear").onclick = async () => { await fetch("/api/jobs",{method:"DELETE"}); poll(); };
+
+$("#drop").onclick = () => $("#fileInput").click();
+$("#fileInput").onchange = e => uploadFiles(e.target.files);
+$("#drop").addEventListener("dragover", e => { e.preventDefault(); $("#drop").classList.add("hot"); });
+$("#drop").addEventListener("dragleave", () => $("#drop").classList.remove("hot"));
+$("#drop").addEventListener("drop", e => {
+  e.preventDefault(); $("#drop").classList.remove("hot");
+  uploadFiles(e.dataTransfer.files);
+});
+
+loadEnv(); browse(""); poll();
+setInterval(loadEnv, 60000);
+</script>
+</body>
+</html>

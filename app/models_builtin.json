@@ -1,0 +1,195 @@
+{
+  "manifest_version": 1,
+  "updated": "2026-09-22",
+  "note": "这是软件内置的离线回退清单。与仓库根目录的 models.json 保持同步；当所有镜像都拉不到线上清单时用它，保证界面不会空着。",
+  "models": [
+    {
+      "id": "basic_pitch_onnx",
+      "name": "Basic Pitch（通用转录）",
+      "desc": "Spotify 的通用多音转录模型。任何乐器、任何编制的曲子都能用，是转录功能的必备项。体积最小。",
+      "tags": [
+        "转录",
+        "必需",
+        "推荐"
+      ],
+      "size_mb": 0.23,
+      "required": true,
+      "recommended": true,
+      "license": "Apache-2.0",
+      "target": "nmp.onnx",
+      "files": [
+        {
+          "target": "nmp.onnx",
+          "size_mb": 0.23,
+          "sources": [
+            "https://raw.githubusercontent.com/DRDRDRRDDRDR/Song2MIDI/main/assets/nmp.onnx"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "demucs_htdemucs",
+      "name": "Demucs htdemucs（默认分离）",
+      "desc": "Demucs 的默认档位。速度与质量平衡得最好，日常用这个。四轨分离：人声 / 鼓 / 贝斯 / 其他。",
+      "tags": [
+        "分离",
+        "推荐"
+      ],
+      "size_mb": 80.2,
+      "required": false,
+      "recommended": true,
+      "license": "MIT",
+      "engine": "demucs",
+      "model_arg": "htdemucs",
+      "files": [
+        {
+          "target": "torch_hub/hub/checkpoints/955717e8-8726e21a.th",
+          "size_mb": 80.2,
+          "sources": [
+            "https://dl.fbaipublicfiles.com/demucs/hybrid_transformer/955717e8-8726e21a.th"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "piano_transcription",
+      "name": "钢琴专用转录（含踏板）",
+      "desc": "ByteDance 高分辨率钢琴转录，MAESTRO 上 note F1=0.9677。专为钢琴训练，输出音符时值明显更准，并且检测延音踏板。钢琴曲强烈建议装。",
+      "tags": [
+        "转录",
+        "钢琴",
+        "推荐"
+      ],
+      "size_mb": 164.0,
+      "required": false,
+      "recommended": true,
+      "license": "MIT",
+      "engine": "piano",
+      "files": [
+        {
+          "target": "piano_transcription/note_F1=0.9677_pedal_F1=0.9186.pth",
+          "size_mb": 164.0,
+          "sources": [
+            "https://hf-mirror.com/asigalov61/bytedance_piano_transcription/resolve/main/CRNN_note_F1%3D0.9677_pedal_F1%3D0.9186.pth",
+            "https://huggingface.co/asigalov61/bytedance_piano_transcription/resolve/main/CRNN_note_F1%3D0.9677_pedal_F1%3D0.9186.pth"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "roformer_bs_4stems",
+      "name": "BS-RoFormer 4stems（分离质量最好）",
+      "desc": "目前分离质量最好的档位之一。但计算量大，实测 CPU 上约 0.05x 实时（一首 4 分钟的歌要 79 分钟），只在有 NVIDIA 显卡时实用。",
+      "tags": [
+        "分离",
+        "需GPU"
+      ],
+      "size_mb": 502.8,
+      "required": false,
+      "recommended": false,
+      "license": "Apache-2.0",
+      "engine": "roformer",
+      "files": [
+        {
+          "target": "roformer/bs_roformer_4stems_ft/bs_roformer_4stems_ft.pth",
+          "size_mb": 502.8,
+          "sources": [
+            "https://hf-mirror.com/SYH99999/bs_roformer_4stems_ft/resolve/main/bs_roformer_4stems_ft.pth",
+            "https://huggingface.co/SYH99999/bs_roformer_4stems_ft/resolve/main/bs_roformer_4stems_ft.pth"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "demucs_htdemucs_ft",
+      "name": "Demucs htdemucs_ft（分离更好）",
+      "desc": "htdemucs 的微调版，由 4 个子模型集成。质量优于默认档，但耗时约为 4 倍。",
+      "tags": [
+        "分离"
+      ],
+      "size_mb": 321.0,
+      "required": false,
+      "recommended": false,
+      "license": "MIT",
+      "engine": "demucs",
+      "model_arg": "htdemucs_ft",
+      "files": [
+        {
+          "target": "torch_hub/hub/checkpoints/f7e0c4bc-ba3fe64a.th",
+          "size_mb": 80.2,
+          "sources": [
+            "https://dl.fbaipublicfiles.com/demucs/hybrid_transformer/f7e0c4bc-ba3fe64a.th"
+          ]
+        },
+        {
+          "target": "torch_hub/hub/checkpoints/d12395a8-e57c48e6.th",
+          "size_mb": 80.2,
+          "sources": [
+            "https://dl.fbaipublicfiles.com/demucs/hybrid_transformer/d12395a8-e57c48e6.th"
+          ]
+        },
+        {
+          "target": "torch_hub/hub/checkpoints/92cfc3b6-ef3bcb9c.th",
+          "size_mb": 80.2,
+          "sources": [
+            "https://dl.fbaipublicfiles.com/demucs/hybrid_transformer/92cfc3b6-ef3bcb9c.th"
+          ]
+        },
+        {
+          "target": "torch_hub/hub/checkpoints/04573f0d-f3cf25b2.th",
+          "size_mb": 80.2,
+          "sources": [
+            "https://dl.fbaipublicfiles.com/demucs/hybrid_transformer/04573f0d-f3cf25b2.th"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "demucs_hdemucs_mmi",
+      "name": "Demucs hdemucs_mmi（速度质量居中）",
+      "desc": "介于 htdemucs 与 htdemucs_ft 之间的档位。",
+      "tags": [
+        "分离"
+      ],
+      "size_mb": 159.7,
+      "required": false,
+      "recommended": false,
+      "license": "MIT",
+      "engine": "demucs",
+      "model_arg": "hdemucs_mmi",
+      "files": [
+        {
+          "target": "torch_hub/hub/checkpoints/75fc33f5-1941ce65.th",
+          "size_mb": 159.7,
+          "sources": [
+            "https://dl.fbaipublicfiles.com/demucs/hybrid_transformer/75fc33f5-1941ce65.th"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "demucs_htdemucs_6s",
+      "name": "Demucs htdemucs_6s（六轨）",
+      "desc": "在四轨之外额外分出钢琴与吉他两轨。注意本项目目前只转录音/鼓/贝斯/其他四轨，多出的两轨暂不会被使用。",
+      "tags": [
+        "分离",
+        "实验性"
+      ],
+      "size_mb": 52.4,
+      "required": false,
+      "recommended": false,
+      "license": "MIT",
+      "engine": "demucs",
+      "model_arg": "htdemucs_6s",
+      "files": [
+        {
+          "target": "torch_hub/hub/checkpoints/5c90dfd2-34c22ccb.th",
+          "size_mb": 52.4,
+          "sources": [
+            "https://dl.fbaipublicfiles.com/demucs/hybrid_transformer/5c90dfd2-34c22ccb.th"
+          ]
+        }
+      ]
+    }
+  ]
+}

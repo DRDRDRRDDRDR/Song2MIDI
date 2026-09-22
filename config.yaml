@@ -1,0 +1,208 @@
+# Song2MIDI 配置文件
+# 所有键都可省略，缺失项自动回落到程序内置默认值。
+# 修改后重启程序生效。
+
+paths:
+  models_dir: models      # Demucs 权重等模型缓存
+  work_dir: work          # 任务中间产物（解码 wav、分离分轨）
+  out_dir: out            # 最终 MIDI 输出
+  logs_dir: logs
+
+ffmpeg:
+  # 留空 = 自动发现。程序会优先复用本机已有的 ffmpeg，
+  # 不会安装任何东西，也不会修改系统 PATH。
+  # 若自动发现失败，在此填入完整路径，例如：
+  # binary: C:\ffmpeg\bin\ffmpeg.exe
+  binary: ""
+  probe: ""
+
+audio:
+  target_sr: 44100        # 中间产物采样率。Demucs 要求 44.1kHz，不要改。
+  channels: 2
+  segment_sec: 60         # 送入模型的片段长度（秒），调小可降低显存峰值
+  segment_overlap_sec: 2  # 片段重叠，避免切点处音符被截断
+
+separator:
+  # ---- 引擎选择 ----
+  # demucs   = 快，CPU 上约 2 分钟/首（日常推荐）
+  # roformer = BS-RoFormer 四轨，质量更好，但官方推理含 4 倍重叠：
+  #            CPU 实测 0.05x 实时（4 分钟的歌约 79 分钟），必须用 GPU
+  engine: demucs
+
+  # ---- Demucs 档位（engine: demucs 时生效）----
+  # htdemucs    = 单模型四轨，快（推荐先跑这个）
+  # htdemucs_ft = 四模型精调，质量更好，耗时约 4 倍
+  # hdemucs_mmi = 早期版本，速度与质量居中
+  # mdx_extra   = MDX 架构，质量较高但占用大
+  model: htdemucs
+
+  # ---- BS-RoFormer（engine: roformer 时生效）----
+  # 模型：SYH99999/bs_roformer_4stems_ft（Apache-2.0，503 MB）
+  # 输出四轨，顺序为 drums / bass / other / vocals
+  roformer_type: bs_roformer
+  roformer_repo: SYH99999/bs_roformer_4stems_ft
+  roformer_checkpoint: bs_roformer_4stems_ft.pth
+  roformer_config: config.yaml
+  roformer_checkpoint_bytes: 527245586   # 用于校验下载完整性
+
+  device: auto            # auto | cuda | cpu
+  shifts: 1               # 随机移位平均次数，2~5 更稳但线性变慢
+  overlap: 0.25
+  jobs: 1                 # Demucs 内部分段并行数
+  max_concurrent: 1       # 同时跑几个分离任务。8GB 显存建议保持 1。
+
+network:
+  # 本机路由器 DNS 会把 huggingface.co 解析到 127.0.0.1（DNS 过滤），
+  # 因此下载模型必须走本地代理，由代理侧做远程解析。
+  # 程序会自动探测下列端口并实测连通性，选出可用且最快的一条。
+  # 环境变量里若已有 HTTPS_PROXY，会一并参与候选。
+  proxy_ports: [9549, 33331, 7890, 7897, 10809, 10808, 1080, 2080, 8080, 20171, 8889]
+
+
+# 转录前的音频预处理（可选）。
+# 只提供高通：实测 noisereduce 类谱门控降噪改动 58% 信号却无收益，
+# 还削掉钢琴低音区（音域 28–88 → 38–88），因此不提供。
+# 低频嗡声（房间嗡鸣、电源哼声）集中在几十 Hz，而钢琴常规演奏很少用到
+# 50Hz 以下，滤掉几乎不伤内容（实测音高 100% 保留）。
+preprocess:
+  highpass_hz: 0          # 0=关闭；建议 40~60 用于去除低频嗡声
+
+transcription:
+  # 转录引擎：auto=独奏曲自动用钢琴专用模型 | basic_pitch=始终用通用模型 | piano=始终用钢琴模型
+  engine: auto
+  # 钢琴专用模型（ByteDance 高分辨率钢琴转录）的权重位置。
+  # 留空则依次查找 models/piano_transcription/ 与 ~/piano_transcription_inference_data/
+  piano:
+    checkpoint: null
+  onset_threshold: 0.5
+  frame_threshold: 0.3
+  minimum_note_length_ms: 58.0
+  minimum_frequency: null   # null = 使用模型默认
+  maximum_frequency: null
+  melodia_trick: true
+  # 按分轨设置转录策略，这是四轨方案的关键差异点
+  per_stem:
+    vocals:
+      mode: polyphonic      # 人声可能有和声堆叠
+      fmin: 65.0            # C2，低于此人声基频基本是噪声
+      fmax: 1500.0
+      max_polyphony: 2
+    bass:
+      mode: monophonic      # 贝斯几乎总是单音，限制复音数能显著去错音
+      fmin: 28.0            # E0，覆盖五弦贝斯降 B 调弦
+      fmax: 400.0
+      max_polyphony: 1
+    other:
+      mode: polyphonic
+      fmin: 55.0
+      fmax: 4000.0
+      max_polyphony: 6
+    mix:
+      # 整首直转（跳过分离）时使用。钢琴曲走这条路径，
+      # 限制复音到十指上限，避免假音符堆积。
+      mode: polyphonic
+      fmin: 27.5            # A0，钢琴最低音
+      fmax: null
+      max_polyphony: 10
+
+# 独奏检测：无鼓+无贝斯的曲目（钢琴/吉他/弦乐独奏）自动跳过四轨分离。
+# 阈值设得保守 —— 宁可判成「需要分离」，也不要漏判（漏判的代价是拆出假鼓）。
+solo_detect:
+  high_ratio_limit: 0.02    # 6k–16kHz 能量占比低于此值 → 无鼓/镲
+  low_ratio_limit: 0.03     # 20–80Hz 能量占比低于此值 → 无贝斯
+  analysis_sr: 22050        # 检测用的降采样率（够用且快）
+
+drums:
+  onset_sensitivity: 0.5     # 越大越灵敏。0=只取包络最强的峰, 1=尽量都取出
+  kick_max_hz: 120.0
+  snare_band_hz: [180.0, 900.0]
+  hat_min_hz: 5000.0
+
+  # 鼓件分类阈值。单位是「相对该频段 98 分位的归一化激活强度」，1.0 约等于一次强击打。
+  # 提示：改这些值之前先跑 tools/test_drums.py，那里有答案已知的合成信号验证。
+  th_kick: 0.32              # 低频激活超过此值判为底鼓
+  th_snare_mid: 0.42         # 军鼓要求中频激活
+  th_snare_high: 0.22        # 军鼓要求高频激活
+  th_snare_high_ratio: 0.50  # 军鼓要求 高频>=此倍数×低频，用于排除底鼓的宽带瞬态
+  th_hat: 0.30               # 超高频激活超过此值判为镲类
+  th_low_tom_min: 0.45       # 通鼓的低频激活下限
+  th_low_tom_max: 0.85       # 通鼓的低频激活上限（超过则更像底鼓）
+
+  # 开镲 / 镲片的判别：残余能量的绝对下限与相对本曲中位数的倍数，两者须同时满足。
+  # 只用绝对值 → 密集素材里高频连贯，所有镲都会被判成开镲。
+  # 只用相对值 → 稀疏素材里闭镲自身波动就会被误判成开镲。
+  th_open_hat_sustain_abs: 0.15
+  th_open_hat_sustain_rel: 1.8
+  th_crash_sustain_abs: 0.30
+  th_crash_sustain_rel: 3.0
+
+  mapping:                   # General MIDI 鼓组音高
+    kick: 36
+    snare: 38
+    closed_hat: 42
+    open_hat: 46
+    low_tom: 41
+    high_tom: 48
+    crash: 49
+    ride: 51
+
+chords:
+  enabled: true
+  n_chroma: 12
+  hop_sec: 0.1
+  min_confidence: 0.35
+  # 和弦最短持续时间。钢琴曲实测和弦切换间隔中位约 549ms，
+  # 若最短只要求 250ms 会留下大量短段，听感上「和弦一直在变」。
+  min_duration_ms: 250
+  # 短段归并：A-B-A 中间那段很短的 B，多半是琶音/装饰音造成的误判。
+  # 设为 0 关闭；建议 250~400。
+  merge_short_ms: 0      # 低于此置信度不输出和弦
+
+postprocess:
+  quantize: "1/16"          # off | 1/4 | 1/8 | 1/16 | 1/32
+  bpm: auto                 # auto 或直接写数字，如 128
+  min_note_ms: 50.0         # 短于此长度的音符视为杂音丢弃
+  merge_gap_ms: 40.0
+
+  # MIDI 伪影清理（转录后）。总开关默认关闭，阈值都有物理依据：
+  #   极短音      —— 钢琴最短可辨识音约 30~50ms，更短的不可能是真实击键
+  #   低力度短音  —— 力度对应击键强度，真钢琴不会既极弱又极短
+  #   同音极短重复 —— 人手无法在 50ms 内重复按下同一个键
+  #   复音上限    —— 注意钢琴在踏板下同时发声可远超十指，建议设 16 而非 10
+  cleanup:
+    enabled: false
+    drop_shorter_than_ms: 0     # 建议 25~40
+    drop_weak_below: 0          # 建议 35（需同时设 weak_max_ms）
+    weak_max_ms: 0              # 建议 80
+    dedupe_repeat_ms: 0         # 建议 50
+    max_polyphony: 0            # 建议 16（0=不限）
+  # 节拍置信度低于此值时放弃量化 —— 网格错了还硬量化会把音符搬到错误位置。
+  # 实测钢琴曲取 20 秒片段时 BPM 会估成 80.6（实际 123）、置信度仅 0.36。
+  min_tempo_confidence: 0.40        # 间隔小于此值的同音高音符合并
+  merge_tolerance_semitones: 0
+  remove_out_of_range: true
+  velocity_from_energy: true
+
+pool:
+  max_workers: 0            # 0 = 按 CPU 核心数自动推断
+  gpu_workers: 1            # 受显存限制，保持 1
+  mp_start_method: spawn
+
+server:
+  host: 127.0.0.1
+  port: 8756
+  open_browser: true
+
+output:
+  midi_type: multi_track    # multi_track | per_stem | both
+  also_write_json: true     # 附带音符 JSON，便于排查与二次处理
+  program_map:              # GM 音色编号
+    vocals: 53              # Voice Oohs
+    bass: 33                # Electric Bass (finger)
+    other: 1                # Acoustic Grand Piano
+    drums: 0                # 通道 10 鼓组
+    chords: 1
+
+logging:
+  level: INFO
+  keep_intermediate: true

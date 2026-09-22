@@ -1,0 +1,154 @@
+name: Build Release
+
+# 触发方式：
+#   1. 手动：Actions 页面点 "Run workflow"
+#   2. 打 tag：git push origin v1.0.0  → 自动构建并发布 Release
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: '发布到 Release 的 tag（留空则只产出 artifact，不发 Release）'
+        required: false
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write      # 发布 Release 需要
+
+jobs:
+  build:
+    name: ${{ matrix.variant }} 版
+    runs-on: windows-latest
+
+    strategy:
+      fail-fast: false       # 一个变体失败不影响另一个
+      matrix:
+        include:
+          - variant: cpu
+            torch_index: https://download.pytorch.org/whl/cpu
+            split_volumes: 'false'      # CPU 版约 0.8 GB，单文件够用
+          - variant: cuda
+            torch_index: https://download.pytorch.org/whl/cu126
+            split_volumes: 'true'       # CUDA 版约 4.3 GB，超 2GB 上限，必须分卷
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+
+      - name: 安装 PyTorch（${{ matrix.variant }}）
+        run: |
+          python -m pip install --upgrade pip
+          pip install torch torchaudio --index-url ${{ matrix.torch_index }}
+
+      - name: 安装其它依赖
+        run: pip install -r requirements-build.txt
+
+      - name: 打印关键版本（排障用）
+        run: |
+          python -c "import torch,sys;print('Python',sys.version);print('torch',torch.__version__);print('cuda 可用:',torch.cuda.is_available())"
+          python -m PyInstaller --version
+
+      - name: 校验必需资源
+        shell: pwsh
+        run: |
+          # 模型已外置，包里只需要 nmp.onnx（225 KB，转录功能的必需项）与前端静态文件
+          $need = @('config.yaml', 'assets/nmp.onnx', 'app/static/index.html')
+          $bad = 0
+          foreach ($f in $need) {
+            if (Test-Path $f) { Write-Host "  存在 $f" }
+            else { Write-Host "  [缺失] $f"; $bad++ }
+          }
+          if ($bad -gt 0) { throw "缺少 $bad 个必需资源" }
+
+      - name: 打包 exe
+        run: |
+          python -m PyInstaller --noconfirm `
+            --distpath "dist_${{ matrix.variant }}" `
+            --workpath "build/work_${{ matrix.variant }}" `
+            build/song2midi.spec
+
+      - name: 检查产物
+        shell: pwsh
+        run: |
+          $d = "dist_${{ matrix.variant }}/Song2MIDI"
+          if (-not (Test-Path "$d/Song2MIDI.exe")) { throw "未生成 exe" }
+          $mb = [math]::Round((Get-ChildItem $d -Recurse -File | Measure-Object Length -Sum).Sum / 1MB, 1)
+          Write-Host "产物大小: $mb MB"
+          # 确认模型没有被误打进包（外置方案的关键断言）
+          $m = "$d/_internal/models"
+          if (Test-Path $m) {
+            $mmb = [math]::Round((Get-ChildItem $m -Recurse -File | Measure-Object Length -Sum).Sum / 1MB, 1)
+            Write-Host "包内 models/ 大小: $mmb MB（应仅约 0.2 MB，即 nmp.onnx）"
+            if ($mmb -gt 5) { throw "模型被误打进包了（$mmb MB），检查 spec 的 add_data" }
+          }
+
+      - name: 压缩（单文件）
+        if: matrix.split_volumes == 'false'
+        shell: pwsh
+        run: |
+          $name = "Song2MIDI-${{ matrix.variant }}"
+          7z a -mx=9 "$name.7z" "./dist_${{ matrix.variant }}/Song2MIDI/*" | Out-Null
+          $mb = [math]::Round((Get-Item "$name.7z").Length / 1MB, 1)
+          Write-Host "$name.7z = $mb MB"
+          echo "ASSET=$name.7z" >> $env:GITHUB_ENV
+
+      # GitHub Release 单文件上限 2 GB，CUDA 版约 4.3 GB，只能分卷
+      - name: 压缩（分卷 1900 MB）
+        if: matrix.split_volumes == 'true'
+        shell: pwsh
+        run: |
+          $name = "Song2MIDI-${{ matrix.variant }}"
+          7z a -mx=5 -v1900m "$name.7z" "./dist_${{ matrix.variant }}/Song2MIDI/*" | Out-Null
+          Get-ChildItem "$name.7z*" | ForEach-Object {
+            $mb = [math]::Round($_.Length / 1MB, 1)
+            Write-Host "  $($_.Name) = $mb MB"
+          }
+          echo "ASSET=$name" >> $env:GITHUB_ENV
+          echo "SPLIT=true" >> $env:GITHUB_ENV
+
+      - name: 上传 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Song2MIDI-${{ matrix.variant }}
+          path: |
+            Song2MIDI-${{ matrix.variant }}.7z*
+          retention-days: 14
+
+      - name: 发布到 Release
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name || inputs.release_tag }}
+          name: ${{ github.ref_name || inputs.release_tag }}
+          draft: false
+          generate_release_notes: true
+          body: |
+            ## 下载说明
+
+            **模型不随软件打包**，首次运行请在界面里点「模型浏览器」下载所需模型。
+
+            | 变体 | 说明 | 建议 |
+            |---|---|---|
+            | `cpu` | 体积小（约 0.8 GB），任何机器都能跑 | 没有 NVIDIA 显卡时选这个 |
+            | `cuda` | 含 CUDA 加速（约 4.3 GB，分卷） | 有 NVIDIA 显卡时选这个 |
+
+            ⚠️ **cuda 版是分卷压缩**，必须把 `cuda.7z.001`、`.002`、`.003` **全部下载**，
+            再对 `.001` 解压（7-Zip 会自动串起来）。
+
+            ### 解压后使用
+            解压出来的 `Song2MIDI` 文件夹要**整体保留**，不能只拷 exe ——
+            依赖都在 `_internal/` 里。
+
+            ### 模型下载位置
+            `%LOCALAPPDATA%\Song2MIDI\models`（可用环境变量 `SONG2MIDI_MODELS` 改到别的盘）
+          files: |
+            Song2MIDI-${{ matrix.variant }}.7z*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
