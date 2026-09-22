@@ -59,30 +59,7 @@ jobs:
         run: pip install --force-reinstall torch torchaudio --index-url ${{ matrix.torch_index }}
 
       - name: 断言 torch 变体正确
-        shell: pwsh
-        run: |
-          # 这一步是为了让「装错变体」这类问题在构建早期就暴露，
-          # 而不是等用户下载了 200 MB 才发现没有 GPU 加速。
-          python -c @'
-          import sys, pathlib, torch
-          v = torch.__version__
-          want = '${{ matrix.variant }}'
-          print('Python  ', sys.version.split()[0])
-          print('torch   ', v)
-          lib = pathlib.Path(torch.__file__).parent / 'lib'
-          dlls = [p.name for p in lib.glob('*.dll')] if lib.is_dir() else []
-          cuda_dlls = [n for n in dlls if 'cuda' in n.lower() or 'cudnn' in n.lower() or 'cublas' in n.lower()]
-          total = sum(p.stat().st_size for p in lib.glob('*')) / 2**20 if lib.is_dir() else 0
-          print(f'torch/lib 共 {len(dlls)} 个 DLL，{total:.1f} MB')
-          print(f'其中 CUDA 相关 DLL: {len(cuda_dlls)} 个')
-          if want == 'cuda':
-              assert '+cu' in v, f'期望 CUDA 版，实际拿到 {v}'
-              assert len(cuda_dlls) > 0, 'torch/lib 里没有任何 CUDA DLL'
-              assert total > 1500, f'torch/lib 仅 {total:.0f} MB，不像 CUDA 版'
-          else:
-              assert '+cu' not in v, f'期望 CPU 版，实际拿到 {v}'
-          print('变体断言通过')
-          '@
+        run: python tools/ci_assert_torch.py ${{ matrix.variant }}
 
       - name: 校验必需资源
         shell: pwsh
