@@ -16,11 +16,21 @@ from __future__ import annotations
 import pathlib
 import sys
 
+# CI runner（windows-latest）上 Python 的 stdout 编码是 cp1252，不是 UTF-8。
+# 直接打印中文会抛 UnicodeEncodeError 并让脚本崩在第一行 —— 断言逻辑根本
+# 执行不到、却看起来像「断言失败」。这里强制 UTF-8，同时输出仍保持 ASCII，
+# 双保险。
+for _s in (sys.stdout, sys.stderr):
+    try:
+        _s.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 
 def main() -> int:
     want = (sys.argv[1] if len(sys.argv) > 1 else "").strip().lower()
     if want not in ("cpu", "cuda"):
-        print(f"用法: {sys.argv[0]} cpu|cuda")
+        print(f"usage: {sys.argv[0]} cpu|cuda")
         return 2
 
     import torch
@@ -33,40 +43,41 @@ def main() -> int:
     cuda_dlls = [n for n in dlls
                  if any(k in n.lower() for k in ("cuda", "cudnn", "cublas", "cufft", "curand"))]
 
-    print(f"  期望变体 : {want}")
-    print(f"  torch    : {v}")
-    print(f"  torch/lib: {len(dlls)} 个 DLL，共 {total_mb:.1f} MB")
-    print(f"  CUDA DLL : {len(cuda_dlls)} 个")
+    print(f"  want variant : {want}")
+    print(f"  torch        : {v}")
+    print(f"  torch/lib    : {len(dlls)} DLLs, {total_mb:.1f} MB")
+    print(f"  CUDA DLLs    : {len(cuda_dlls)}")
     if cuda_dlls:
-        print(f"    例如   : {', '.join(cuda_dlls[:4])}")
+        print(f"    e.g.       : {', '.join(cuda_dlls[:4])}")
 
     problems = []
     if want == "cuda":
         if "+cu" not in v:
-            problems.append(f"版本号 '{v}' 不含 '+cu'，说明装的是 CPU 版")
+            problems.append(f"version '{v}' has no '+cu' -> CPU build installed")
         if not cuda_dlls:
-            problems.append("torch/lib 里没有任何 CUDA DLL")
+            problems.append("no CUDA DLL in torch/lib")
         if total_mb < 1500:
-            problems.append(f"torch/lib 仅 {total_mb:.0f} MB，CUDA 版应超过 1500 MB")
+            problems.append(f"torch/lib only {total_mb:.0f} MB, CUDA build should exceed 1500 MB")
     else:
         if "+cu" in v:
-            problems.append(f"版本号 '{v}' 含 '+cu'，说明装的是 CUDA 版")
+            problems.append(f"version '{v}' has '+cu' -> CUDA build installed")
         if total_mb > 800:
-            problems.append(f"torch/lib 达 {total_mb:.0f} MB，CPU 版应远小于此")
+            problems.append(f"torch/lib is {total_mb:.0f} MB, CPU build should be far smaller")
 
     if problems:
         print()
-        print("  断言失败：")
+        print("  ASSERTION FAILED:")
         for p in problems:
-            print(f"    · {p}")
+            print(f"    - {p}")
         print()
-        print("  常见原因：安装顺序不对 —— 先装了 torch，随后 pip 处理其它包的")
-        print("  依赖时从默认源重新解析，把 torch 换成了另一个变体。")
-        print("  正确顺序：先 pip install -r requirements-build.txt，最后再装 torch。")
+        print("  Likely cause: install order. If torch is installed BEFORE")
+        print("  'pip install -r requirements-build.txt', pip re-resolves deps")
+        print("  (demucs requires torch>=2.1) and pulls the CPU build from PyPI.")
+        print("  Correct order: requirements first, then torch with --index-url.")
         return 1
 
     print()
-    print(f"  断言通过：{want} 变体正确")
+    print(f"  ASSERTION PASSED: {want} variant is correct")
     return 0
 
 
